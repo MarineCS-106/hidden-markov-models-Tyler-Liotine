@@ -26,6 +26,12 @@ Picture the moment one of our seabirds (Cooper, Ella, or Sydney) slowed down fro
 
 **Q1:** Describe how you think this moment would be described by intuitive, scientific, and statistical models.
 
+int. - we saw them physically saw them slow down and begin to turn
+
+sci. - externally see an eddy and internally they begin to slow and change states
+
+stat. - their step lengths begin to decrease in size as their turn angles increase in frequency
+
 ## Setup
 
 Run `install.packages("moveHMM")` at the console.
@@ -49,10 +55,16 @@ We will use two data sources in today's class: the movement track (data/track.gp
 #| label: load-data
 
 # Load track
+track_gpx <- vect("data/track.gpx", layer = "track_points")
 
 # Convert to data frame (necessary for HMM)
+track <- tibble(
+  lon = geom(track_gpx)[, "x"],
+  lat = geom(track_gpx)[, "y"]
+)
 
 # Load environment
+frontal_intensity <- rast("data/frontal_intensity.tiff")
 
 ```
 
@@ -62,8 +74,13 @@ Visualize the two data sources together.
 #| label: viz-data
 
 # Convert track points to lines
+track_lines <- as.lines(track_gpx)
 
 # Create map
+ggplot() +
+  geom_spatraster(data = frontal_intensity) +
+  geom_spatvector(data = track_lines) +
+  scale_fill_distiller(palette = "RdYlBu")
 
 ```
 
@@ -77,6 +94,7 @@ Now we'll fit a hidden Markov model to our data.
 #| label: prepare-data
 
 # Prepare the data for model fitting
+track_prep <- prepData(track, coordNames = c("lon", "lat"))
 
 ```
 
@@ -86,24 +104,32 @@ Now we'll fit a hidden Markov model to our data.
 #| label: viz-metrics
 
 # Visualize distribution of step lengths
+ggplot(track_prep, aes(step)) +
+  geom_histogram()
 
 # Visualize distribution of turning angles
+ggplot(track_prep, aes(angle)) +
+  geom_histogram()
 
 ```
 
 **Q3:** What are reasonable *starting parameters* for the forage and transit states? Recall the track simulation from week 4.
 
-| Parameter           | Forage           | Transit          |
-|---------------------|------------------|------------------|
-| Step mean           | \[number\]       | \[number\]       |
-| Step s.d.           | \[more or less\] | \[more or less\] |
-| Angle mean          | \[number\]       | \[number\]       |
-| Angle concentration | \[more or less\] | \[more or less\] |
+| Parameter           | Forage | Transit |
+|---------------------|--------|---------|
+| Step mean           | 0.001  | 0.005   |
+| Step s.d.           | 0.001  | 0.002   |
+| Angle mean          | 0      | 0       |
+| Angle concentration | 1      | 5       |
 
 ```{r}
 #| label: fit-hmm
 
 # Fit a 2-state HMM to the track
+track_hmm <- fitHMM(track_prep,
+                    nbStates = 2,
+                    stepPar0 = c(0.001, 0.005, 0.001, 0.002),
+                    anglePar0 = c(0, 0, 1, 5))
 
 ```
 
@@ -111,18 +137,19 @@ Now we'll fit a hidden Markov model to our data.
 #| label: viz-hmm
 
 # Visualize the components of the HMM
+plot(track_hmm, ask = FALSE)
 
 ```
 
 **Q4:** Match each plot to one of the components of the HMM. Note: one component is represented twice, one plot shows two components, and one component isn't plotted.
 
--   Data
+-   Data - fig. 3
 
--   Hidden states
+-   Hidden states - fig. 3
 
--   Emission distributions
+-   Emission distributions - fig. 1 and fig. 2
 
--   Transition matrix
+-   Transition matrix - not featured
 
 ## Refine the statistical model
 
@@ -130,12 +157,23 @@ Our model currently infers behavior in a vacuum. Even though the classification 
 
 **Q6:** Using the *since-if-then* framing, write a hypothesis for the relationship between seabird behavior and frontal intensity.
 
+Mine: Since seabirds traverse vast amounts of weather patterns, if fish tend to congregate around weather structures, then we can assume that they forage more often at these fronts.
+
+Max: Since prey aggregate at mesoscale features, if seabirds get close to these features then seabirds are more likely to start foraging.
+
 ```{r}
 #| label: refine-model
 
 # First, extract the frontal intensity at the track locations
+track_front <- terra::extract(frontal_intensity, track_gpx)
+track_prep$frontal_intensity <- track_front[, 2]
 
 # Fit model, incorporating the frontal intensity
+track_hmm2 <- fitHMM(track_prep,
+                    nbStates = 2,
+                    formula = ~ frontal_intensity,
+                    stepPar0 = c(0.001, 0.005, 0.001, 0.002),
+                    anglePar0 = c(0, 0, 1, 5))
 
 ```
 
@@ -145,13 +183,22 @@ Visualize the refined model.
 #| label: viz-hmm2
 
 # Plot refined HMM
+plot(track_hmm2, ask = FALSE)
 
 ```
 
 **Q7:** What new component did we plot?
 
+We plotted the transition "matrix" which appears in the third figure
+
 **Q8:** Interpret the new component in the context of the scientific and statistical models.
+
+The closer to a front that a seabird gets the more probable it is to begin foraging.
 
 ## Reflect
 
 **Q9:** *"All models are wrong, but some are useful."* What is one way this statistical model is "wrong" (i.e., omits or simplifies part of the scientific model) and one way that it is useful (i.e., adds to our understanding of the scientific model).
+
+The statistical model is "wrong" in the fact that it emits the internal functions that occur to create these outcomes for the bird. We are looking more specifically at the external factors with these figures, but that does not account for all the information at play.
+
+The statistical model is proven to be helpful in our understanding of the behaviors of the seabirds because it lays out a statistical method for which a seabird act in the presence of a front and eddy.
